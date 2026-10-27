@@ -1,0 +1,35 @@
+name: Build APK
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.22.0"
+          channel: "stable"
+
+      - name: Create Android project if missing
+        run: |
+          if [ ! -d "android" ]; then
+            cp lib/main.dart /tmp/main.dart.bak
+            cp pubspec.yaml /tmp/pubspec.yaml.bak
+            flutter create . --project-name colis_connect --org com.colisconnect --platforms android
+            cp /tmp/main.dart.bak lib/main.dart
+            cp /tmp/pubspec.yaml.bak pubspec.yaml
+            rm -rf test
+          fi
+
+      - run: flutter pub get
+      - run: flutter build apk --debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colis-connect-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
