@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -22,6 +23,8 @@ class MockDB {
     Colis(id: "1", codeBarre: "CC-77382-XB91", expediteurId: "exp1", livreurId: "liv1", nomClient: "Karim Benali", adresse: "Alger Centre", designation: "Chaussures Nike 42", prixArticle: 8500, prixLivraison: 600, statut: ColisStatus.livre, date: DateTime.now()),
     Colis(id: "2", codeBarre: "CC-77383-XB92", expediteurId: "exp1", nomClient: "Sara Lounis", adresse: "Oran", designation: "Robe", prixArticle: 4500, prixLivraison: 800, statut: ColisStatus.attente, date: DateTime.now()),
     Colis(id: "3", codeBarre: "CC-77384-XB93", expediteurId: "exp1", livreurId: "liv1", nomClient: "Amine D.", adresse: "Constantine", designation: "Montre", prixArticle: 12000, prixLivraison: 600, statut: ColisStatus.retourProvisoire, date: DateTime.now()),
+    Colis(id: "4", codeBarre: "CC-77370-XB80", expediteurId: "exp1", livreurId: "liv1", nomClient: "Yacine M.", adresse: "Blida", designation: "Sac", prixArticle: 3200, prixLivraison: 500, statut: ColisStatus.livre, date: DateTime.now().subtract(const Duration(days: 5))),
+    Colis(id: "5", codeBarre: "CC-77350-XB70", expediteurId: "exp1", livreurId: "liv1", nomClient: "Nadia K.", adresse: "Tizi Ouzou", designation: "Parfum", prixArticle: 6000, prixLivraison: 700, statut: ColisStatus.livre, date: DateTime.now().subtract(const Duration(days: 20))),
   ];
 }
 
@@ -31,6 +34,9 @@ class ColisApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Colis Connect',
+      locale: const Locale('fr'),
+      supportedLocales: const [Locale('fr'), Locale('en')],
+      localizationsDelegates: const [GlobalMaterialLocalizations.delegate, GlobalWidgetsLocalizations.delegate, GlobalCupertinoLocalizations.delegate],
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
       home: const WelcomeScreen(),
     );
@@ -102,24 +108,81 @@ class _ExpHomeState extends State<ExpediteurHome>{
     );
   }
 }
-class DashboardExp extends StatelessWidget{ const DashboardExp({super.key});
+class DashboardExp extends StatefulWidget{ const DashboardExp({super.key}); @override State<DashboardExp> createState()=> _DashboardExpState();}
+class _DashboardExpState extends State<DashboardExp>{
+  DateTimeRange? plage; // null = toutes les dates
+
+  DateTime _jour(DateTime d)=> DateTime(d.year, d.month, d.day);
+  String _fmt(DateTime d)=> "${d.day.toString().padLeft(2,'0')}/${d.month.toString().padLeft(2,'0')}/${d.year}";
+  String get _plageTexte => plage==null ? "Toutes les dates" : "Du ${_fmt(plage!.start)} au ${_fmt(plage!.end)}";
+
+  void _preset(int jours){
+    final fin=_jour(DateTime.now());
+    setState(()=> plage=DateTimeRange(start: fin.subtract(Duration(days: jours-1)), end: fin));
+  }
+
+  Future<void> _choisir() async {
+    final now=DateTime.now();
+    final r = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2023),
+      lastDate: DateTime(now.year+1, 12, 31),
+      initialDateRange: plage,
+      locale: const Locale('fr'),
+      helpText: "Choisir une plage de dates",
+      saveText: "OK",
+    );
+    if(r!=null) setState(()=> plage=r);
+  }
+
+  bool _dansPlage(Colis c){
+    if(plage==null) return true;
+    final d=_jour(c.date);
+    return !d.isBefore(plage!.start) && !d.isAfter(plage!.end);
+  }
+
   @override Widget build(BuildContext context){
-    var all = MockDB.colis.where((c)=>c.expediteurId=="exp1").toList();
-    int livres = all.where((c)=>c.statut==ColisStatus.livre).length;
+    var mine = MockDB.colis.where((c)=>c.expediteurId=="exp1").toList();
+    var all = mine.where(_dansPlage).toList();
+    var livresList = all.where((c)=>c.statut==ColisStatus.livre).toList();
+    int livres = livresList.length;
     int prov = all.where((c)=>c.statut==ColisStatus.retourProvisoire).length;
     int def = all.where((c)=>c.statut==ColisStatus.retourDefinitif).length;
-    double aCollecter = all.where((c)=>c.statut==ColisStatus.livre).fold(0, (s,c)=>s+c.prixArticle);
+    double encaisse = livresList.fold<double>(0, (s,c)=>s+c.prixArticle);
+    double aCollecter = mine.where((c)=>c.statut==ColisStatus.livre).fold<double>(0, (s,c)=>s+c.prixArticle);
     return ListView(padding: const EdgeInsets.all(16), children: [
+      Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        InkWell(onTap: _choisir, child: Row(children: [
+          const Icon(Icons.date_range), const SizedBox(width:8),
+          Expanded(child: Text(_plageTexte, style: const TextStyle(fontWeight: FontWeight.bold))),
+          if(plage!=null) IconButton(onPressed: ()=> setState(()=> plage=null), icon: const Icon(Icons.close), tooltip: "Effacer"),
+          const Icon(Icons.arrow_drop_down),
+        ])),
+        const SizedBox(height:8),
+        Wrap(spacing: 8, children: [
+          ActionChip(label: const Text("Aujourd'hui"), onPressed: ()=> _preset(1)),
+          ActionChip(label: const Text("7 jours"), onPressed: ()=> _preset(7)),
+          ActionChip(label: const Text("30 jours"), onPressed: ()=> _preset(30)),
+          ActionChip(label: const Text("Tout"), onPressed: ()=> setState(()=> plage=null)),
+        ]),
+      ]))),
+      const SizedBox(height:12),
       Row(children: [Expanded(child: _card("LIVRÉS", "$livres", Colors.green)), const SizedBox(width:8), Expanded(child: _card("PROVISOIRE", "$prov", Colors.orange)), const SizedBox(width:8), Expanded(child: _card("DÉFINITIF", "$def", Colors.red))]),
       const SizedBox(height:12),
-      Card(color: Colors.indigo, child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [const Text("ARGENT À COLLECTER", style: TextStyle(color: Colors.white70)), Text("$aCollecter DA", style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)), const Text("Chez le livreur - À clôturer par QR Scan", style: TextStyle(color: Colors.white70, fontSize: 12))]))),
+      Card(color: Colors.green.shade700, child: SizedBox(width: double.infinity, child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+        const Text("MONTANT ENCAISSÉ", style: TextStyle(color: Colors.white70)),
+        Text("${encaisse.toStringAsFixed(0)} DA", style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+        Text("$livres colis livrés - $_plageTexte", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+      ])))),
+      const SizedBox(height:8),
+      Card(color: Colors.indigo, child: SizedBox(width: double.infinity, child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [const Text("ARGENT À COLLECTER", style: TextStyle(color: Colors.white70)), Text("$aCollecter DA", style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)), const Text("Chez le livreur - À clôturer par QR Scan", style: TextStyle(color: Colors.white70, fontSize: 12))])))),
       const SizedBox(height:12),
       const Text("Activité Récente", style: TextStyle(fontWeight: FontWeight.bold)),
-      ...all.map((c)=> ListTile(leading: Icon(Icons.inventory_2, color: _color(c.statut)), title: Text(c.nomClient), subtitle: Text("${c.codeBarre} - ${_label(c.statut)}"), trailing: Text("${c.prixArticle} DA"))),
+      if(all.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text("Aucun colis sur cette période"))),
+      ...all.map((c)=> ListTile(leading: Icon(Icons.inventory_2, color: _color(c.statut)), title: Text(c.nomClient), subtitle: Text("${c.codeBarre} - ${_label(c.statut)}\n${_fmt(c.date)}"), isThreeLine: true, trailing: Text("${c.prixArticle} DA"))),
     ]);
   }
   Widget _card(String t,String v,Color c)=> Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [Text(t, style: TextStyle(fontSize: 10, color: c, fontWeight: FontWeight.bold)), Text(v, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold))])));
-
 }
 class ListeColisExp extends StatefulWidget{ const ListeColisExp({super.key}); @override State<ListeColisExp> createState()=> _ListeColisExpState();}
 class _ListeColisExpState extends State<ListeColisExp>{
